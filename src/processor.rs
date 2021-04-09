@@ -39,6 +39,7 @@ impl Processor {
         let initializer = next_account_info(account_info_iter)?;
 
         if !initializer.is_signer {
+            msg!("initializer needs to be signer");
             return Err(ProgramError::MissingRequiredSignature);
         }
 
@@ -89,14 +90,18 @@ impl Processor {
         )?;
 
         msg!("Calling the token program to transfer ownership...");
-        invoke(
+        let result = invoke(
             &owner_change_ix,
             &[
                 temp_token_account.clone(),
                 initializer.clone(),
                 token_program.clone(),
             ],
-        )
+        )?;
+
+        msg!("------------- rESULT ------------------");
+        msg!("{:?}",result);
+        Ok(())
     }
 }
 
