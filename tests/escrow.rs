@@ -1,4 +1,3 @@
-
 use paulx_solana_escrow::{processor as p, state::Escrow};
 use solana_program::{instruction::{AccountMeta, Instruction}, program_pack::Pack, pubkey::Pubkey, rent::Rent, sysvar};
 use solana_program_test::{ProgramTest, processor};
@@ -11,6 +10,8 @@ async fn test_success() {
     // escrow instruction
     let mut data = [0u8; 9];
     hex::decode_to_slice("007b00000000000000", &mut data as &mut [u8]).unwrap();
+
+    let escrow_amount = 123;
 
     let program_id = Pubkey::new_unique();
 
@@ -48,21 +49,12 @@ async fn test_success() {
     );
 
     // escrow account
-    let empty_escrow = Escrow {
-        is_initialized: false,
-        initializer_pubkey: initializer_key.pubkey(),
-        temp_token_account_pubkey: temp_x_token_account.pubkey(),
-        initializer_token_to_receive_account_pubkey: initializer_y_token_account.pubkey(),
-        expected_amount: 0,
-    };
-    let mut packed_escrow = vec![0; Escrow::get_packed_len()];
-    Escrow::pack(empty_escrow, &mut packed_escrow).unwrap();
     program_test.add_account(
         escrow_account.pubkey(), 
         Account {
             lamports: Rent::default().minimum_balance(Escrow::get_packed_len()),
             owner: program_id, // Can only withdraw lamports from accounts owned by the program
-            data: packed_escrow,
+            data: vec![0; Escrow::get_packed_len()],
             ..Account::default()
         },
     );
@@ -78,7 +70,8 @@ async fn test_success() {
         },
     );
 
-    // create tokne x mint account
+    // create token x mint account
+    // XXX chose to mint directly instead of minting and after transferring
     program_test.add_account(
         token_x.pubkey(), 
         Account {
@@ -90,34 +83,43 @@ async fn test_success() {
     );
 
     // Start program test -------------------------
-    
     let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
     println!("recent_blockhash: {:?}", recent_blockhash);
 
     println!("-------------------------- {} --------------------------", "Init  Token");
     let mut transaction = Transaction::new_with_payer(
         &[
-            // init token
-            spl_token::instruction::initialize_mint(
-                &spl_token::id(),
-                &token_x.pubkey(),
-                &minter.pubkey(),
-                None,
-                0,
-            )
-            .unwrap(),
-            // init temp token account
-            spl_token::instruction::initialize_account(
-                &spl_token::id(),
-                &temp_x_token_account.pubkey(),
-                &token_x.pubkey(),
-                &initializer_key.pubkey(),
-            )
+        // init token
+        spl_token::instruction::initialize_mint(
+            &spl_token::id(),
+            &token_x.pubkey(),
+            &minter.pubkey(),
+            None,
+            0,
+        )
+        .unwrap(),
+        // init temp token account
+        spl_token::instruction::initialize_account(
+            &spl_token::id(),
+            &temp_x_token_account.pubkey(),
+            &token_x.pubkey(),
+            &initializer_key.pubkey(),
+        )
+        .unwrap(),
+        // mint token x to account
+        spl_token::instruction::mint_to(
+            &spl_token::id(), 
+            &token_x.pubkey(),
+            &temp_x_token_account.pubkey(),
+            &minter.pubkey(),
+            &[], 
+            escrow_amount
+        )
             .unwrap(),
         ],
         Some(&payer.pubkey()),
     );
-    transaction.sign(&[&payer], recent_blockhash);
+    transaction.sign(&[&payer, &minter], recent_blockhash);
     banks_client.process_transaction(transaction).await.unwrap();
     println!("-------------------------- {} --------------------------", "END");
 
@@ -151,4 +153,19 @@ async fn test_success() {
     );
     transaction.sign(&[&payer, &initializer_key], recent_blockhash);
     banks_client.process_transaction(transaction).await.unwrap();
+
+    // ------------------------ ASSERT --------------------------------
+    
+    let escrow_account_data = banks_client
+        .get_account(escrow_account.pubkey())
+        .await
+        .expect("get_account")
+        .expect("escrow_account not found");
+
+    let escrow_unpacked = Escrow::unpack(&escrow_account_data.data).unwrap();
+    assert_eq!(escrow_unpacked.is_initialized, true);
+    assert_eq!(escrow_unpacked.initializer_pubkey,initializer_key.pubkey());
+    assert_eq!(escrow_unpacked.temp_token_account_pubkey,temp_x_token_account.pubkey());
+    assert_eq!(escrow_unpacked.initializer_token_to_receive_account_pubkey,initializer_y_token_account.pubkey());
+    assert_eq!(escrow_unpacked.expected_amount, escrow_amount);
 }
