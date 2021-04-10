@@ -5,6 +5,7 @@ use solana_program_test::{ProgramTest, processor};
 use solana_sdk::{account::Account, signature::{Keypair, Signer}, transaction::Transaction};
 
 #[tokio::test]
+#[cfg(feature = "test-bpf")]
 async fn test_success() {
     // TODO packing escrow instruction
     // escrow instruction
@@ -31,11 +32,10 @@ async fn test_success() {
     // 5. `[]` The token program
 
     let mut program_test = ProgramTest::new(
-        "paulx_escrow_example",
+        "paulx_solana_escrow",
         program_id,
         processor!(p::Processor::process),
     );
-    
 
     // initializer account
     program_test.add_account(
@@ -93,7 +93,6 @@ async fn test_success() {
     
     let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
     println!("recent_blockhash: {:?}", recent_blockhash);
-    let rent = banks_client.get_rent().await.unwrap();
 
     println!("-------------------------- {} --------------------------", "Init  Token");
     let mut transaction = Transaction::new_with_payer(

@@ -100,7 +100,7 @@ impl Processor {
         )?;
 
         msg!("------------- rESULT ------------------");
-        msg!("{:?}",result);
+        msg!("{:?}", result);
         Ok(())
     }
 }
