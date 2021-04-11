@@ -237,7 +237,6 @@ mod tests {
         create_account_for_test, create_is_signer_account_infos, Account as SolanaAccount,
         WritableAccount,
     };
-    use sysvar::rent;
 
     #[test]
     fn test_pack_unpack() {
@@ -366,129 +365,79 @@ mod tests {
 
         let amount = 123;
 
-        let escrow_data = Escrow {
+        // setup escrow account
+        let mut escrow_account = SolanaAccount {
+            owner: pda,
+            data: vec![0; Escrow::get_packed_len()],
+            ..SolanaAccount::default()
+        };
+        Escrow {
             is_initialized: true,
             initializer_pubkey,
             temp_token_account_pubkey: pdas_temp_token_pubkey,
             initializer_token_to_receive_account_pubkey,
             expected_amount: amount,
-        };
-        let escrow_account_min_balance = Rent::default().minimum_balance(Escrow::get_packed_len());
-        let mut packed_escrow = vec![0; Escrow::get_packed_len()];
-        Escrow::pack(escrow_data, &mut packed_escrow).unwrap();
+        }
+        .pack_into_slice(&mut escrow_account.data);
 
         // temp_token_account (account that ownership was set in  initialization)
-        let token_account_len = spl_token::state::Account::get_packed_len();
-        let min_token_account_bal = Rent::default().minimum_balance(token_account_len);
-        let mut pdas_temp_token_account =
-            SolanaAccount::new(min_token_account_bal, token_account_len, &spl_token::id());
-        let mut pda_account = SolanaAccount::default();
-
-        // setup token
-        {
-            let mint_len = spl_token::state::Mint::get_packed_len();
-            let min_mint_bal = Rent::default().minimum_balance(mint_len);
-            let mut rent_sysvar = create_account_for_test(&Rent::default());
-
-            let owner_key = Pubkey::new_unique();
-            let mint_key = Pubkey::new_unique();
-            let mut mint_account = SolanaAccount::new(min_mint_bal, mint_len, &spl_token::id());
-
-            // new mint
-            let ix = spl_token::instruction::initialize_mint(
-                &spl_token::id(),
-                &mint_key,
-                &owner_key,
-                None,
-                2,
-            )
-            .unwrap();
-            let mut meta = [
-                (&mint_key, false, &mut mint_account),
-                (&rent::id(), false, &mut rent_sysvar),
-            ];
-            let account_infos = create_is_signer_account_infos(&mut meta);
-            spl_token::processor::Processor::process(&ix.program_id, &account_infos, &ix.data)
-                .unwrap();
-
-            // new token account
-            let ix = spl_token::instruction::initialize_account(
-                &spl_token::id(),
-                &pdas_temp_token_pubkey,
-                &mint_key,
-                &pda,
-            )
-            .unwrap();
-            let mut meta = [
-                (&pdas_temp_token_pubkey, false, &mut pdas_temp_token_account),
-                (&mint_key, false, &mut mint_account),
-                (&pda, false, &mut pda_account),
-                (&rent::id(), false, &mut rent_sysvar),
-            ];
-            let account_infos = create_is_signer_account_infos(&mut meta);
-            spl_token::processor::Processor::process(&ix.program_id, &account_infos, &ix.data)
-                .unwrap();
-
-            // mint value to pdas token account
-            let mut owner_account = SolanaAccount::default();
-            //let owner_info: AccountInfo = (&owner_key, true, &mut owner_account).into();
-            let ix = spl_token::instruction::mint_to(
-                &spl_token::id(),
-                &mint_key,
-                &pdas_temp_token_pubkey,
-                &owner_key,
-                &[],
-                amount,
-            )
-            .unwrap();
-            let mut meta = [
-                (&mint_key, false, &mut mint_account),
-                (&pdas_temp_token_pubkey, false, &mut pdas_temp_token_account),
-                (&owner_key, true, &mut owner_account),
-                (&rent::id(), false, &mut rent_sysvar),
-            ];
-            let account_infos = create_is_signer_account_infos(&mut meta);
-            spl_token::processor::Processor::process(&ix.program_id, &account_infos, &ix.data)
-                .unwrap();
+        let mut pdas_temp_token_account = SolanaAccount {
+            owner: pda,
+            data: vec![0; TokenAccount::get_packed_len()],
+            ..SolanaAccount::default()
+        };
+        TokenAccount {
+            amount,
+            state: spl_token::state::AccountState::Initialized,
+            ..TokenAccount::default()
         }
+        .pack_into_slice(&mut pdas_temp_token_account.data);
 
         let mut taker_account = SolanaAccount::default();
         let mut taker_token_send_account = SolanaAccount::default();
         let mut taker_token_receive_account = SolanaAccount::default();
         let mut initializer_account = SolanaAccount::default();
         let mut initializer_token_receive_account = SolanaAccount::default();
-        let mut escrow_account = SolanaAccount {
-            lamports: escrow_account_min_balance,
-            owner: pda,
-            data: packed_escrow,
-            ..SolanaAccount::default()
-        };
 
         let mut token_account = SolanaAccount::default();
         let mut pda_temp_account = SolanaAccount::default(); // temp_token_account owner
 
-        let mut accounts = [
-            (&Pubkey::new_unique(), true, &mut taker_account),
-            (&Pubkey::new_unique(), false, &mut taker_token_send_account),
+        let taker_pubkey = Pubkey::new_unique();
+        let taker_token_send_pubkey = Pubkey::new_unique();
+        let taker_token_receive_pubkey = Pubkey::new_unique();
+        let escrow_pubkey = Pubkey::new_unique();
+        let token_pubkey = Pubkey::new_unique();
+
+        let accounts: [solana_program::account_info::AccountInfo; 9] = [
+            (&taker_pubkey, true, &mut taker_account).into(),
             (
-                &Pubkey::new_unique(),
+                &taker_token_send_pubkey,
+                false,
+                &mut taker_token_send_account,
+            )
+                .into(),
+            (
+                &taker_token_receive_pubkey,
                 false,
                 &mut taker_token_receive_account,
-            ),
-            (&pdas_temp_token_pubkey, false, &mut pdas_temp_token_account),
-            (&initializer_pubkey, false, &mut initializer_account),
+            )
+                .into(),
+            (&pdas_temp_token_pubkey, false, &mut pdas_temp_token_account).into(),
+            (&initializer_pubkey, false, &mut initializer_account).into(),
             (
                 &initializer_token_to_receive_account_pubkey,
                 false,
                 &mut initializer_token_receive_account,
-            ),
-            (&Pubkey::new_unique(), false, &mut escrow_account),
-            (&Pubkey::new_unique(), false, &mut token_account),
-            (&pda, false, &mut pda_temp_account),
+            )
+                .into(),
+            (&escrow_pubkey, false, &mut escrow_account).into(),
+            (&token_pubkey, false, &mut token_account).into(),
+            (&pda, false, &mut pda_temp_account).into(),
         ];
-        let accounts = create_is_signer_account_infos(&mut accounts);
 
         Processor::process_exchange(&accounts, amount, &escrow_program_id)
             .expect("error: process_exchange()");
+
+        // TODO all the asserts
     }
 }
