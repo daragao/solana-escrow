@@ -224,13 +224,14 @@ mod tests {
 
     use std::str::FromStr;
 
-    //use super::*;
-    use crate::processor::Processor;
-    use crate::state::Escrow;
-    use solana_program::{program_pack::Pack, pubkey::Pubkey, rent::Rent, sysvar};
+    use super::*;
+    use solana_program::{
+        instruction::Instruction, program_pack::Pack, program_stubs, rent::Rent, sysvar,
+    };
 
     use solana_sdk::account::{
         create_account_for_test, create_is_signer_account_infos, Account as SolanaAccount,
+        WritableAccount,
     };
 
     #[test]
@@ -263,6 +264,32 @@ mod tests {
         // println!("{:?}", unpacked);
     }
 
+    struct TestSyscallStubs {}
+    impl program_stubs::SyscallStubs for TestSyscallStubs {
+        fn sol_invoke_signed(
+            &self,
+            _instruction: &Instruction,
+            _account_infos: &[AccountInfo],
+            _signers_seeds: &[&[&[u8]]],
+        ) -> ProgramResult {
+            msg!("TestSyscallStubs::sol_invoke_signed()");
+
+            // TODO
+            // Stub behaviour of the invoke
+
+            Ok(())
+        }
+    }
+
+    fn test_syscall_stubs() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+
+        ONCE.call_once(|| {
+            program_stubs::set_syscall_stubs(Box::new(TestSyscallStubs {}));
+        });
+    }
+
     #[test]
     fn test_init_escrow() {
         // println!("-------------------------- test_init_escrow --------------------------");
@@ -272,6 +299,7 @@ mod tests {
         // 3. `[writable]` The escrow account, it will hold all necessary info about the trade.
         // 4. `[]` The rent sysvar
         // 5. `[]` The token program
+        test_syscall_stubs();
 
         let escrow_program_id =
             Pubkey::from_str(&"escrow1111111111111111111111111111111111111").unwrap();
@@ -279,22 +307,19 @@ mod tests {
         let escrow_pubkey = Pubkey::new_unique();
 
         let token_id = spl_token::id();
-        let mut rent_sysvar = create_account_for_test(&Rent::default());
+        let rent = Rent::default();
+        let mut rent_sysvar = create_account_for_test(&rent);
 
-        let account_min_balance = Rent::default().minimum_balance(Escrow::get_packed_len());
-
-        let account_len = Escrow::get_packed_len(); // Account::get_packed_len();
         let escrow_len = Escrow::get_packed_len();
+        let escrow_account_min_balance = rent.minimum_balance(escrow_len);
 
-        let mut initializer_account =
-            SolanaAccount::new(account_min_balance, account_len, &token_id);
-        let mut temp_token_account =
-            SolanaAccount::new(account_min_balance, account_len, &token_id);
-        let mut initializer_token_to_receive_account =
-            SolanaAccount::new(account_min_balance, account_len, &token_id);
+        let mut initializer_account = SolanaAccount::default();
+        let mut temp_token_account = SolanaAccount::default();
+        let mut initializer_token_to_receive_account = SolanaAccount::default();
+        initializer_token_to_receive_account.set_owner(spl_token::id()); // set owner of initializer token account to spl_token
         let mut escrow_account =
-            SolanaAccount::new(account_min_balance, escrow_len, &escrow_pubkey);
-        let mut token_account = SolanaAccount::new(account_min_balance, account_len, &token_id);
+            SolanaAccount::new(escrow_account_min_balance, escrow_len, &escrow_pubkey);
+        let mut token_account = SolanaAccount::default();
 
         let mut accounts = [
             (&Pubkey::new_unique(), true, &mut initializer_account),
@@ -311,11 +336,6 @@ mod tests {
 
         let accounts = create_is_signer_account_infos(&mut accounts);
 
-        // println!("{:?}\n", accounts);
-        //
-        //let accounts = create_is_signer_account_infos(accounts);
-        let result = Processor::process_init_escrow(&accounts, 123, &escrow_program_id);
-        println!("Result: {:?}", result);
-        // println!("-------------------------- END test_init_escrow --------------------------");
+        Processor::process_init_escrow(&accounts, 123, &escrow_program_id).unwrap();
     }
 }

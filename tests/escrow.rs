@@ -1,6 +1,11 @@
+// FIX this is not a good way to avoid these warnings
+#[cfg(feature = "test-bpf")]
 use paulx_solana_escrow::{processor as p, state::Escrow};
+#[cfg(feature = "test-bpf")]
 use solana_program::{instruction::{AccountMeta, Instruction}, program_pack::Pack, pubkey::Pubkey, rent::Rent, sysvar};
+#[cfg(feature = "test-bpf")]
 use solana_program_test::{ProgramTest, processor};
+#[cfg(feature = "test-bpf")]
 use solana_sdk::{account::Account, signature::{Keypair, Signer}, transaction::Transaction};
 
 #[tokio::test]
