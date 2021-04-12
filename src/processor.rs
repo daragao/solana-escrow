@@ -219,7 +219,6 @@ impl Processor {
             .ok_or(EscrowError::AmountOverflow)?;
         **escrow_account.lamports.borrow_mut() = 0;
         Ok(())
-        // XXX I am exhausted
     }
 }
 
@@ -272,11 +271,27 @@ mod tests {
     impl program_stubs::SyscallStubs for TestSyscallStubs {
         fn sol_invoke_signed(
             &self,
-            _instruction: &Instruction,
-            _account_infos: &[AccountInfo],
+            instruction: &Instruction,
+            account_infos: &[AccountInfo],
             _signers_seeds: &[&[&[u8]]],
         ) -> ProgramResult {
-            msg!("TestSyscallStubs::sol_invoke_signed()");
+            println!("TestSyscallStubs::sol_invoke_signed()");
+            println!("\t{:?}", instruction.program_id);
+
+            let ix = spl_token::instruction::TokenInstruction::unpack(&instruction.data).unwrap();
+            println!("\t{:?}", ix);
+            
+            println!("\taccounts");
+            account_infos.iter().for_each(|acc| println!("\t\t{:?}\t{}", acc.key, acc.is_signer));
+
+            println!("\tsigners: {:x?}", _signers_seeds);
+
+            match ix {
+                spl_token::instruction::TokenInstruction::Transfer { amount } => println!("\tAmount: {}", amount),
+                spl_token::instruction::TokenInstruction::CloseAccount => println!("\tClosing Account"),
+                spl_token::instruction::TokenInstruction::SetAuthority { authority_type, new_authority } => println!("\tNew Authority {:?} {:?}", authority_type, new_authority),
+                _ => return Err(ProgramError::Custom(400)),
+            }
 
             // TODO
             // Stub behaviour of the invoke
@@ -355,11 +370,10 @@ mod tests {
         // 6. `[writable]` The escrow account holding the escrow info
         // 7. `[]` The token program
         // 8. `[]` The PDA account
-        let escrow_program_id = "escrow1111111111111111111111111111111111111";
-        let escrow_program_id = Pubkey::from_str(&escrow_program_id).unwrap();
-        let initializer_pubkey = Pubkey::new_unique();
-        let pdas_temp_token_pubkey = Pubkey::new_unique();
-        let initializer_token_to_receive_account_pubkey = Pubkey::new_unique();
+        let escrow_program_id =                           Pubkey::from_str(&"escrow1111111111111111111111111111111111111").unwrap();
+        let initializer_pubkey =                          Pubkey::from_str(&"init222222222222222222222222222222222222222").unwrap();
+        let pdas_temp_token_pubkey =                      Pubkey::from_str(&"pda3333333333333333333333333333333333333333").unwrap();
+        let initializer_token_to_receive_account_pubkey = Pubkey::from_str(&"tokenreceive4444444444444444444444444444444").unwrap();
 
         let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], &escrow_program_id); // temp_token_account owner pubkey
 
@@ -402,11 +416,11 @@ mod tests {
         let mut token_account = SolanaAccount::default();
         let mut pda_temp_account = SolanaAccount::default(); // temp_token_account owner
 
-        let taker_pubkey = Pubkey::new_unique();
-        let taker_token_send_pubkey = Pubkey::new_unique();
-        let taker_token_receive_pubkey = Pubkey::new_unique();
-        let escrow_pubkey = Pubkey::new_unique();
-        let token_pubkey = Pubkey::new_unique();
+        let taker_pubkey =               Pubkey::from_str(&"taker55555555555555555555555555555555555555").unwrap();
+        let taker_token_send_pubkey =    Pubkey::from_str(&"sender6666666666666666666666666666666666666").unwrap();
+        let taker_token_receive_pubkey = Pubkey::from_str(&"receive777777777777777777777777777777777777").unwrap();
+        let escrow_pubkey =              Pubkey::from_str(&"escrowaccount888888888888888888888888888888").unwrap();
+        let token_pubkey =               spl_token::id();
 
         let accounts: [solana_program::account_info::AccountInfo; 9] = [
             (&taker_pubkey, true, &mut taker_account).into(),
@@ -434,6 +448,8 @@ mod tests {
             (&token_pubkey, false, &mut token_account).into(),
             (&pda, false, &mut pda_temp_account).into(),
         ];
+
+        test_syscall_stubs(); // test mock
 
         Processor::process_exchange(&accounts, amount, &escrow_program_id)
             .expect("error: process_exchange()");
