@@ -237,6 +237,8 @@ mod tests {
         WritableAccount,
     };
 
+    use spl_token::instruction::TokenInstruction;
+
     #[test]
     fn test_pack_unpack() {
         // my first Rust test... so proud!
@@ -278,23 +280,51 @@ mod tests {
             println!("TestSyscallStubs::sol_invoke_signed()");
             println!("\t{:?}", instruction.program_id);
 
-            let ix = spl_token::instruction::TokenInstruction::unpack(&instruction.data).unwrap();
-            println!("\t{:?}", ix);
-            
-            println!("\taccounts");
-            account_infos.iter().for_each(|acc| println!("\t\t{:?}\t{}", acc.key, acc.is_signer));
+            // token program
+            if instruction.program_id == spl_token::id() {
+                let ix =
+                    spl_token::instruction::TokenInstruction::unpack(&instruction.data).unwrap();
+                println!("\t{:?}", ix);
 
-            println!("\tsigners: {:x?}", _signers_seeds);
+                println!("\taccounts");
+                account_infos
+                    .iter()
+                    .for_each(|acc| println!("\t\t{:?}\t{}", acc.key, acc.is_signer));
 
-            match ix {
-                spl_token::instruction::TokenInstruction::Transfer { amount } => println!("\tAmount: {}", amount),
-                spl_token::instruction::TokenInstruction::CloseAccount => println!("\tClosing Account"),
-                spl_token::instruction::TokenInstruction::SetAuthority { authority_type, new_authority } => println!("\tNew Authority {:?} {:?}", authority_type, new_authority),
-                _ => return Err(ProgramError::Custom(400)),
+                println!("\tsigners: {:x?}", _signers_seeds);
+
+                match ix {
+                    TokenInstruction::Transfer { amount } => {
+                        println!("\tAmount: {}", amount);
+                        if account_infos[0].data_len() > 0 {
+                            let sender = TokenAccount::unpack_from_slice(
+                                *account_infos[0].try_borrow_data().unwrap(),
+                            )
+                            .unwrap();
+                            println!("sender   {:?}", sender);
+                        }
+                        if account_infos[1].data_len() > 0 {
+                            let receiver =
+                                TokenAccount::unpack(*account_infos[1].try_borrow_data().unwrap());
+                            println!("receiver {:?}", receiver);
+                        }
+                    }
+                    TokenInstruction::CloseAccount => {
+                        println!("\tClosing Account")
+                    }
+                    TokenInstruction::SetAuthority {
+                        authority_type,
+                        new_authority,
+                    } => {
+                        println!("\tNew Authority {:?} {:?}", authority_type, new_authority)
+                    }
+                    _ => return Err(ProgramError::Custom(400)),
+                }
             }
 
             // TODO
             // Stub behaviour of the invoke
+            //
 
             Ok(())
         }
@@ -370,10 +400,14 @@ mod tests {
         // 6. `[writable]` The escrow account holding the escrow info
         // 7. `[]` The token program
         // 8. `[]` The PDA account
-        let escrow_program_id =                           Pubkey::from_str(&"escrow1111111111111111111111111111111111111").unwrap();
-        let initializer_pubkey =                          Pubkey::from_str(&"init222222222222222222222222222222222222222").unwrap();
-        let pdas_temp_token_pubkey =                      Pubkey::from_str(&"pda3333333333333333333333333333333333333333").unwrap();
-        let initializer_token_to_receive_account_pubkey = Pubkey::from_str(&"tokenreceive4444444444444444444444444444444").unwrap();
+        let escrow_program_id =
+            Pubkey::from_str(&"escrow1111111111111111111111111111111111111").unwrap();
+        let initializer_pubkey =
+            Pubkey::from_str(&"init222222222222222222222222222222222222222").unwrap();
+        let pdas_temp_token_pubkey =
+            Pubkey::from_str(&"pda3333333333333333333333333333333333333333").unwrap();
+        let initializer_token_to_receive_account_pubkey =
+            Pubkey::from_str(&"tokenreceive4444444444444444444444444444444").unwrap();
 
         let (pda, _bump_seed) = Pubkey::find_program_address(&[b"escrow"], &escrow_program_id); // temp_token_account owner pubkey
 
@@ -416,11 +450,15 @@ mod tests {
         let mut token_account = SolanaAccount::default();
         let mut pda_temp_account = SolanaAccount::default(); // temp_token_account owner
 
-        let taker_pubkey =               Pubkey::from_str(&"taker55555555555555555555555555555555555555").unwrap();
-        let taker_token_send_pubkey =    Pubkey::from_str(&"sender6666666666666666666666666666666666666").unwrap();
-        let taker_token_receive_pubkey = Pubkey::from_str(&"receive777777777777777777777777777777777777").unwrap();
-        let escrow_pubkey =              Pubkey::from_str(&"escrowaccount888888888888888888888888888888").unwrap();
-        let token_pubkey =               spl_token::id();
+        let taker_pubkey =
+            Pubkey::from_str(&"taker55555555555555555555555555555555555555").unwrap();
+        let taker_token_send_pubkey =
+            Pubkey::from_str(&"sender6666666666666666666666666666666666666").unwrap();
+        let taker_token_receive_pubkey =
+            Pubkey::from_str(&"receive777777777777777777777777777777777777").unwrap();
+        let escrow_pubkey =
+            Pubkey::from_str(&"escrowaccount888888888888888888888888888888").unwrap();
+        let token_pubkey = spl_token::id();
 
         let accounts: [solana_program::account_info::AccountInfo; 9] = [
             (&taker_pubkey, true, &mut taker_account).into(),
